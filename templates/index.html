@@ -1,0 +1,13 @@
+{% load static %}
+
+<link rel="stylesheet" href="{% static 'polls/../../static/polls/style.css' %}">
+
+{% if app_list %}
+    <ul>
+    {% for app in app_list %}
+        <li><a href={{ app.index }}>{{ app.name }}</a></li>
+    {% endfor %}
+    </ul>
+{% else %}
+    <p>No app are available.</p>
+{% endif %}

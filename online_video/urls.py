@@ -15,6 +15,9 @@ Including another URLconf
 """
 from django.urls import path
 from online_video import views
+
+app_name = "online_video"
 urlpatterns = [
     path(r'', views.index, name='index'),
+    path('download/', views.download, name='download'),
 ]

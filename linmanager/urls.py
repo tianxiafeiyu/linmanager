@@ -16,7 +16,12 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 
+import linmanager.views
+
 urlpatterns = [
+    path(r'', linmanager.views.index, name='index'),
     path('admin/', admin.site.urls),
     path('polls/', include('polls.urls')),
+    path('ov/', include('online_video.urls')),
+    path("chat/", include("chat.urls")),
 ]
