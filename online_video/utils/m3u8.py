@@ -1,7 +1,10 @@
 # -- coding: utf-8 --
+import asyncio
 import os
 import re
+import threading
 import uuid
+from multiprocessing import Queue
 from urllib.parse import urlparse
 
 import requests
@@ -15,6 +18,10 @@ import shutil
 CRYPTO_ENABLE = True
 OUTPUT_DIR = None
 TIMEOUT = 10
+PROCESS_NUM = int(multiprocessing.cpu_count() / 2)
+# 存储下载进度
+# multiprocessing 启用线程，不会共享全局变量
+PROGRESS_MAP = {}
 
 
 class M3U8(object):
@@ -59,7 +66,7 @@ class M3U8(object):
         m3u8_lines = m3u8_content.split('\n')
 
         return m3u8_lines
-        
+
     def _parse_ts_url(self, base_url, m3u8_lines):
         for index, line_content in enumerate(m3u8_lines):
             if 'EXT-X-KEY' in line_content:
@@ -93,9 +100,10 @@ def get_response(url):
     return requests.get(url, headers=CHROME_HEADERS, timeout=10, proxies=PROXIES)
 
 
-def download_ts_files(ts_list, tmp_dir, process_id):
+def download_ts_files(ts_list, tmp_dir, process_id, file_id, score, queue):
     cookies = None
     session = requests.Session()
+
     for i, ts_url in enumerate(ts_list):
         print('%d, download %s, index:%d/%d, %s' % (process_id, os.path.basename(tmp_dir), i, len(ts_list), ts_url))
         retry_times = 100
@@ -108,6 +116,8 @@ def download_ts_files(ts_list, tmp_dir, process_id):
             retry_times -= 1
             if ret_sucess:
                 break
+        # 更新下载进度
+        queue.put(score)
 
 
 def download_ts(ts_url, tmp_file, session, cookies=None):
@@ -149,7 +159,7 @@ def decrypt_files(ts_urls, tmp_dir, encrypt_method, key_str):
             f.write(cryptor.decrypt(encrypt_content))
 
 
-def download_m3u8_video(url, out_dir, out_name, process_num):
+def download_m3u8_video(url, out_dir, out_name, file_id, queue):
     out_path = os.path.join(out_dir, out_name)
     tmp_dir = os.path.join(out_dir, os.path.splitext(os.path.basename(out_name))[0])
     if os.path.exists(out_path) and not os.path.exists(tmp_dir):
@@ -166,16 +176,18 @@ def download_m3u8_video(url, out_dir, out_name, process_num):
             os.makedirs(tmp_dir)
 
         process_list = []
-        per_process_num = int(ts_len / process_num)
+        per_process_num = int(ts_len / PROCESS_NUM)
 
+        score = 100 / len(m3u8_inst.ts_urls)
         # 启用多进程下载视频
-        for i in range(process_num):
+        for i in range(PROCESS_NUM):
             id_start = i * per_process_num
             id_end = (i + 1) * per_process_num
-            if i == process_num - 1:
+            if i == PROCESS_NUM - 1:
                 id_end = ts_len
             cur_process = multiprocessing.Process(
-                target=download_ts_files, args=(m3u8_inst.ts_urls[id_start:id_end], tmp_dir, i))
+                target=download_ts_files,
+                args=(m3u8_inst.ts_urls[id_start:id_end], tmp_dir, i, file_id, score, queue))
             cur_process.start()
             # search_ip(ip_prefix, database, table_name, ip_start, ip_end, i)
             process_list.append(cur_process)
@@ -212,12 +224,48 @@ def download_m3u8_video(url, out_dir, out_name, process_num):
 ua = UserAgent()
 
 M3U8_URL_REGEX = r'https:\\*/\\*/[\\\w\-_\.]+[\\\w\-\.,@?^=%&:/~\+#]*\.m3u8'
+TITLE_REGEX = r'<title>(.+?)</title>'
 CHROME_HEADERS = {'User-Agent': ua.random}
 PROXIES = {"http": "127.0.0.1:7890", "https": "127.0.0.1:7890"}
+
+Flag = {}
+
+
+def listen_process(file_id, queue):
+    while Flag.get(file_id):
+        result = queue.get()
+        PROGRESS_MAP[file_id] += result
+        print("process: %s" % PROGRESS_MAP[file_id])
+
+
+def async_run_download(m3u8_url, out_dir, save_name, file_id, PROGRESS_MAP):
+    print("开始下载：%s" % m3u8_url)
+    queue = Queue()
+    global Flag
+    Flag[file_id] = True
+
+    # 这里再开一个线程去监听结果
+    t = threading.Thread(target=listen_process, args=(file_id, queue,))
+    t.start()
+
+    if os.path.isfile(m3u8_url):
+        # 连续下载多个路径的视频
+        with open(m3u8_url, 'r') as f_url:
+            url_list = f_url.readlines()
+        for url_idx, url_line in enumerate(url_list):
+            download_m3u8_video(url_line.strip(), out_dir, save_name, file_id, queue)
+    else:
+        download_m3u8_video(m3u8_url, out_dir, save_name, file_id, queue)
+
+    del Flag[file_id]
+    # 删除进度缓存，表示下载完成
+    del PROGRESS_MAP[file_id]
 
 
 # python catch_m3u8.py url 保存名称 起始序号
 def download(url, out_dir):
+    file_id = uuid.uuid4().hex
+
     r = get_response(url)
     html = r.text
 
@@ -228,24 +276,26 @@ def download(url, out_dir):
 
     m3u8_url = matches[0]
     m3u8_url = eval(repr(m3u8_url).replace('\\', ''))
-    print("开始下载：%s" % m3u8_url)
 
-    # 获取cpu核数
-    process_num = int(multiprocessing.cpu_count() / 2)
-    print("启用线程数：%s" % process_num)
+    title = ""
+    title_matches = re.findall(TITLE_REGEX, html)
+    if matches:
+        title = title_matches[0].strip()
+        print("获取标题：%s" % title)
+    else:
+        title = file_id
+
+    print("启用线程数：%s" % PROCESS_NUM)
 
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
 
-    if os.path.isfile(m3u8_url):
-        # 连续下载多个路径的视频
-        with open(m3u8_url, 'r') as f_url:
-            url_list = f_url.readlines()
-        for url_idx, url_line in enumerate(url_list):
-            save_name = uuid.uuid4().hex + '.mp4'
-            download_m3u8_video(url_line.strip(), out_dir, save_name, process_num)
-    else:
-        save_name = uuid.uuid4().hex + '.mp4'
-        download_m3u8_video(m3u8_url, out_dir, save_name, process_num)
+    save_name = title + '.mp4'
 
-    return True
+    PROGRESS_MAP[file_id] = 0.0
+    print(PROGRESS_MAP)
+
+    # 开启一个线程去下载
+    threading.Thread(target=async_run_download, args=(m3u8_url, out_dir, save_name, file_id, PROGRESS_MAP,)).start()
+
+    return file_id

@@ -20,4 +20,11 @@ def index(request):
             "name": "聊天室",
         }
     ]
-    return render(request, 'index.html', {"app_list": app_list})
+
+    tool_list = [
+        {
+            "index": "https://c.runoob.com/front-end/61/",
+            "name": "菜鸟工具",
+        }
+    ]
+    return render(request, 'index.html', {"app_list": app_list, "tool_list": tool_list})

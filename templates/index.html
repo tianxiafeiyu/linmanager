@@ -1,13 +1,34 @@
+<html>
+<head>
+    <meta charset="utf-8"/>
+    <title>Linmanager</title>
+</head>
+
 {% load static %}
 
 <link rel="stylesheet" href="{% static 'polls/../../static/polls/style.css' %}">
 
-{% if app_list %}
-    <ul>
-    {% for app in app_list %}
-        <li><a href={{ app.index }}>{{ app.name }}</a></li>
-    {% endfor %}
-    </ul>
-{% else %}
-    <p>No app are available.</p>
-{% endif %}
+<body>
+    <p>我的应用：</p>
+    {% if app_list %}
+        <ul>
+        {% for app in app_list %}
+            <li><a href={{ app.index }}>{{ app.name }}</a></li>
+        {% endfor %}
+        </ul>
+    {% else %}
+        <p>No app are available.</p>
+    {% endif %}
+    <br>
+    <p>在线工具：</p>
+    {% if tool_list %}
+        <ul>
+        {% for app in tool_list %}
+            <li><a href={{ app.index }}>{{ app.name }}</a></li>
+        {% endfor %}
+        </ul>
+    {% else %}
+        <p>No tool are available.</p>
+    {% endif %}
+</body>
+</html>
