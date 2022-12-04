@@ -1,5 +1,4 @@
 # -- coding: utf-8 --
-import asyncio
 import os
 import re
 import threading
@@ -20,7 +19,6 @@ OUTPUT_DIR = None
 TIMEOUT = 10
 PROCESS_NUM = int(multiprocessing.cpu_count() / 2)
 # 存储下载进度
-# multiprocessing 启用线程，不会共享全局变量
 PROGRESS_MAP = {}
 
 
@@ -199,7 +197,7 @@ def download_m3u8_video(url, out_dir, out_name, file_id, queue):
         if CRYPTO_ENABLE and m3u8_inst.encrypt_method not in ['NONE', None, 'None']:
             print('encrypt method:%s' % m3u8_inst.encrypt_method)
             print('key uri:%s' % m3u8_inst.key_uri)
-            key_str = get_response(m3u8_inst.key_uri)
+            key_str = get_response(m3u8_inst.key_uri).text
             decrypt_files(m3u8_inst.ts_urls, tmp_dir, m3u8_inst.encrypt_method, key_str)
 
         print('Merging to one file:%s' % out_path)
@@ -265,24 +263,29 @@ def async_run_download(m3u8_url, out_dir, save_name, file_id, PROGRESS_MAP):
 # python catch_m3u8.py url 保存名称 起始序号
 def download(url, out_dir):
     file_id = uuid.uuid4().hex
-
-    r = get_response(url)
-    html = r.text
-
-    matches = re.findall(M3U8_URL_REGEX, html)
-    if not matches:
-        print("获取m3db地址失败。")
-        return False
-
-    m3u8_url = matches[0]
-    m3u8_url = eval(repr(m3u8_url).replace('\\', ''))
-
     title = ""
-    title_matches = re.findall(TITLE_REGEX, html)
-    if matches:
-        title = title_matches[0].strip()
-        print("获取标题：%s" % title)
+    m3u8_url = ""
+
+    # 支持直接输入m3u8地址
+    if re.match(M3U8_URL_REGEX, url):
+        m3u8_url = url
     else:
+        r = get_response(url)
+        html = r.text
+
+        matches = re.findall(M3U8_URL_REGEX, html)
+        if not matches:
+            print("获取m3u8地址失败。")
+            return False
+
+        m3u8_url = eval(repr(matches[0]).replace('\\', ''))
+
+        title_matches = re.findall(TITLE_REGEX, html)
+        if title_matches:
+            title = title_matches[0].strip()
+            print("获取标题：%s" % title)
+
+    if not title:
         title = file_id
 
     print("启用线程数：%s" % PROCESS_NUM)
