@@ -8,7 +8,6 @@ from urllib.parse import urlparse
 
 import requests
 
-from fake_useragent import UserAgent
 from Crypto.Cipher import AES
 
 import multiprocessing
@@ -218,12 +217,9 @@ def download_m3u8_video(url, out_dir, out_name, file_id, queue):
         if os.path.exists(tmp_dir):
             shutil.rmtree(tmp_dir)
 
-
-ua = UserAgent()
-
 M3U8_URL_REGEX = r'https:\\*/\\*/[\\\w\-_\.]+[\\\w\-\.,@?^=%&:/~\+#]*\.m3u8'
 TITLE_REGEX = r'<title>(.+?)</title>'
-CHROME_HEADERS = {'User-Agent': ua.random}
+CHROME_HEADERS = {'User-Agent': "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36"}
 PROXIES = {"http": "127.0.0.1:7890", "https": "127.0.0.1:7890"}
 
 Flag = {}
